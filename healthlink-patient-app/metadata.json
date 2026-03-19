@@ -1,0 +1,5 @@
+{
+  "name": "HealthLink Patient App",
+  "description": "A mobile-first diagnostic support tool for rural and peri-urban Kenya, featuring offline symptom checking and multilingual support.",
+  "requestFramePermissions": []
+}

@@ -1,0 +1,30 @@
+[
+  {
+    "id": "rule_1",
+    "condition": "Malaria",
+    "symptoms": ["fever", "chills", "headache"],
+    "recommendation": "Possible Malaria. Please visit the nearest health center for a blood test.",
+    "triageLevel": "urgent"
+  },
+  {
+    "id": "rule_2",
+    "condition": "Common Cold",
+    "symptoms": ["cough", "sore_throat"],
+    "recommendation": "Likely a common cold. Rest, stay hydrated, and monitor symptoms.",
+    "triageLevel": "self-care"
+  },
+  {
+    "id": "rule_3",
+    "condition": "Severe Infection",
+    "symptoms": ["fever", "fatigue", "nausea"],
+    "recommendation": "Signs of a potential severe infection. Seek medical attention immediately.",
+    "triageLevel": "emergency"
+  },
+  {
+    "id": "rule_4",
+    "condition": "General Malaise",
+    "symptoms": ["fatigue", "headache"],
+    "recommendation": "General fatigue. Ensure you are getting enough rest and nutrition.",
+    "triageLevel": "routine"
+  }
+]

@@ -1,0 +1,99 @@
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: users
+// Document ID: {userId} (Firebase Auth UID)
+// Fields:
+//   - uid: string (required) - Firebase Auth UID
+//   - phoneNumber: string (required) - User's phone number
+//   - displayName: string (optional) - User's display name
+//   - language: string (required, ['en', 'sw']) - Preferred language
+//   - createdAt: string (optional, ISO 8601) - Account creation timestamp
+//
+// Collection: reports
+// Document ID: {reportId} (UUID)
+// Fields:
+//   - id: string (required) - Unique report ID
+//   - userId: string (required) - Owner's UID
+//   - symptoms: list (required, strings) - List of selected symptoms
+//   - customSymptom: string (optional) - User-provided custom symptom description
+//   - condition: string (required) - Matched condition
+//   - recommendation: string (required) - Diagnostic recommendation
+//   - triageLevel: string (required, ['emergency', 'urgent', 'routine', 'self-care']) - Triage urgency level
+//   - timestamp: string (required, ISO 8601) - When the report was created
+//
+// ===============================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.userId;
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidDateString(dateStr) {
+      return dateStr is string && dateStr.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$");
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'phoneNumber', 'language']) &&
+             data.uid == request.auth.uid &&
+             data.phoneNumber is string && data.phoneNumber.size() >= 10 && data.phoneNumber.size() <= 15 &&
+             data.language in ['en', 'sw'] &&
+             (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 50)) &&
+             (!('createdAt' in data) || isValidDateString(data.createdAt));
+    }
+
+    function isValidReport(data) {
+      return data.keys().hasAll(['id', 'userId', 'symptoms', 'condition', 'recommendation', 'triageLevel', 'timestamp']) &&
+             data.id is string &&
+             data.userId == request.auth.uid &&
+             data.symptoms is list && data.symptoms.size() <= 20 &&
+             (!('customSymptom' in data) || (data.customSymptom is string && data.customSymptom.size() <= 1000)) &&
+             data.condition is string && data.condition.size() <= 100 &&
+             data.recommendation is string && data.recommendation.size() <= 1000 &&
+             data.triageLevel in ['emergency', 'urgent', 'routine', 'self-care'] &&
+             isValidDateString(data.timestamp);
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUser(request.resource.data);
+      allow update: if isOwner(userId) && isValidUser(request.resource.data) && 
+                    request.resource.data.uid == resource.data.uid;
+    }
+
+    match /reports/{reportId} {
+      allow read: if isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid);
+      allow create: if isAuthenticated() && isValidReport(request.resource.data);
+      allow update: if false; // Reports are immutable
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+  }
+}

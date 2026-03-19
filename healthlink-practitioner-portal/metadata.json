@@ -1,0 +1,5 @@
+{
+  "name": "HealthLink Practitioner Portal",
+  "description": "Admin dashboard for healthcare practitioners to monitor patient reports and manage diagnostic rules.",
+  "requestFramePermissions": []
+}
