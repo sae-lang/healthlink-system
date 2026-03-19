@@ -4,7 +4,7 @@ import { createServer as createViteServer } from "vite";
 import jwt from "jsonwebtoken";
 
 const app = express();
-const PORT = 3000;
+const PORT = 3001;
 const SECRET_KEY = "healthlink-secret-key";
 
 app.use(express.json());

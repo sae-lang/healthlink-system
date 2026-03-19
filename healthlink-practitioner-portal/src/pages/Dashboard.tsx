@@ -59,7 +59,7 @@ export const Dashboard: React.FC = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await api.get('/admin/reports');
+        const res = await api.get('/doctor/cases');
         setReports(res.data);
       } catch (err) {
         console.error(err);
@@ -146,7 +146,7 @@ export const Dashboard: React.FC = () => {
                     reports.slice(0, 5).map((report) => (
                       <tr key={report.id} className="hover:bg-slate-50 transition-colors cursor-pointer">
                         <td className="px-6 py-4">
-                          <span className="text-sm font-medium text-slate-900">{report.userId}</span>
+                      <span className="text-sm font-medium text-slate-900">{report.patientName || report.userId}</span>
                         </td>
                         <td className="px-6 py-4">
                           <TriageBadge level={report.triageLevel} />
@@ -162,7 +162,7 @@ export const Dashboard: React.FC = () => {
                           </div>
                         </td>
                         <td className="px-6 py-4 text-sm text-slate-500">
-                          {format(new Date(report.timestamp), 'HH:mm')}
+                          {format(new Date(report.createdAt), 'HH:mm')}
                         </td>
                       </tr>
                     ))
@@ -186,10 +186,10 @@ export const Dashboard: React.FC = () => {
                 <div className="flex items-start gap-3">
                   <AlertTriangle className="text-red-600 shrink-0" size={20} />
                   <div>
-                    <p className="text-sm font-bold text-red-900">Critical: {alert.userId}</p>
-                    <p className="text-xs text-red-700 mt-1 line-clamp-2">{alert.recommendation}</p>
+                    <p className="text-sm font-bold text-red-900">Critical: {alert.patientName || alert.userId}</p>
+                    <p className="text-xs text-red-700 mt-1 line-clamp-2">{alert.recommendation || alert.aiResult?.recommendation}</p>
                     <p className="text-[10px] text-red-500 mt-2 font-medium uppercase">
-                      {format(new Date(alert.timestamp), 'MMM d, HH:mm')}
+                      {format(new Date(alert.createdAt), 'MMM d, HH:mm')}
                     </p>
                   </div>
                 </div>

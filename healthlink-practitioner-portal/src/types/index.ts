@@ -1,8 +1,8 @@
 export interface User {
   id: string;
-  email: string;
+  phone: string;
   name: string;
-  role: 'practitioner' | 'admin';
+  role: 'DOCTOR';
 }
 
 export type TriageLevel = 'emergency' | 'urgent' | 'routine' | 'self-care';
@@ -10,11 +10,23 @@ export type TriageLevel = 'emergency' | 'urgent' | 'routine' | 'self-care';
 export interface PatientReport {
   id: string;
   userId: string;
+  patientName?: string;
   symptoms: string[];
-  recommendation: string;
+  recommendation?: string;
   triageLevel: TriageLevel;
-  timestamp: string;
+  status: string;
+  createdAt: string;
   reviewed?: boolean;
+  recommendations?: {
+    id: string;
+    source: string;
+    content: string;
+    createdAt: string;
+  }[];
+  aiResult?: {
+    condition?: string;
+    recommendation?: string;
+  } | null;
 }
 
 export interface DiagnosticRule {

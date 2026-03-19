@@ -19,7 +19,11 @@ export const Login: React.FC = () => {
     setError('');
     try {
       console.log("Calling API...");
-      const response = await api.post('/admin/login', data);
+      const response = await api.post('/auth/login', {
+        phone: data.email,
+        password: data.password,
+        role: 'DOCTOR',
+      });
       console.log("API response received:", response.data);
       login(response.data.token, response.data.user);
       navigate('/');
@@ -86,7 +90,7 @@ export const Login: React.FC = () => {
 
         <div className="mt-8 pt-6 border-t border-slate-100 text-center">
           <p className="text-xs text-slate-400">
-            For demonstration, any email and password will work.
+            Seeded demo account: doctor@healthlink.org / Password123!
           </p>
         </div>
       </motion.div>

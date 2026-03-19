@@ -30,104 +30,50 @@ import {
   ShieldAlert
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { v4 as uuidv4 } from 'uuid';
 import { useStore } from './store';
 import translations from './translations.json';
-import { runRules } from './engine';
-import { analyzeSymptomsAI } from './services/geminiService';
 import { cn, formatDate, formatRelativeTime } from './utils';
-import { auth, db } from './firebase';
-import { 
-  signInWithEmailAndPassword, 
-  createUserWithEmailAndPassword, 
-  signOut, 
-  onAuthStateChanged,
-  User as FirebaseUser,
-  GoogleAuthProvider,
-  signInWithPopup
-} from 'firebase/auth';
-import { 
-  collection, 
-  query, 
-  where, 
-  onSnapshot, 
-  addDoc, 
-  setDoc, 
-  doc, 
-  getDoc,
-  orderBy,
-  FirestoreError,
-  getDocFromServer,
-  serverTimestamp
-} from 'firebase/firestore';
+import { apiRequest, clearPatientSession, getPatientSession, setPatientSession } from './services/api';
 
 // --- Types ---
 type Screen = 'auth' | 'home' | 'checker' | 'results' | 'history' | 'settings' | 'messages' | 'profile';
 
-enum OperationType {
-  CREATE = 'create',
-  UPDATE = 'update',
-  DELETE = 'delete',
-  LIST = 'list',
-  GET = 'get',
-  WRITE = 'write',
+interface AppUser {
+  id: string;
+  name: string;
+  phone: string;
+  role: 'PATIENT';
 }
 
-interface FirestoreErrorInfo {
-  error: string;
-  operationType: OperationType;
-  path: string | null;
-  authInfo: {
-    userId: string | undefined;
-    email: string | null | undefined;
-    emailVerified: boolean | undefined;
-    isAnonymous: boolean | undefined;
-    tenantId: string | null | undefined;
-    providerInfo: {
-      providerId: string;
-      displayName: string | null;
-      email: string | null;
-      photoUrl: string | null;
-    }[];
-  }
-}
-
-function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
-      tenantId: auth.currentUser?.tenantId,
-      providerInfo: auth.currentUser?.providerData.map(provider => ({
-        providerId: provider.providerId,
-        displayName: provider.displayName,
-        email: provider.email,
-        photoUrl: provider.photoURL
-      })) || []
-    },
-    operationType,
-    path
-  }
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
+interface PatientCase {
+  id: string;
+  symptoms: string[];
+  triageLevel: 'emergency' | 'urgent' | 'routine' | 'self-care';
+  status: string;
+  createdAt: string;
+  timestamp?: string;
+  condition?: string;
+  recommendation?: string;
+  recommendations: { id: string; source: string; content: string; createdAt: string }[];
+  aiResult?: {
+    condition?: string;
+    recommendation?: string;
+  } | null;
 }
 
 export default function App() {
   const { language, setLanguage } = useStore();
-  const [user, setUser] = useState<FirebaseUser | null>(null);
+  const [user, setUser] = useState<AppUser | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [currentScreen, setCurrentScreen] = useState<Screen>('auth');
   const [isRegistering, setIsRegistering] = useState(false);
   const [loadingText, setLoadingText] = useState('');
   const [fullName, setFullName] = useState('');
-  const [userData, setUserData] = useState<any>(null);
+  const [userData, setUserData] = useState<{ displayName: string; phoneNumber: string } | null>(null);
   const [selectedSymptoms, setSelectedSymptoms] = useState<string[]>([]);
   const [customSymptom, setCustomSymptom] = useState('');
   const [lastResult, setLastResult] = useState<any>(null);
-  const [reports, setReports] = useState<any[]>([]);
+  const [reports, setReports] = useState<PatientCase[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -140,92 +86,67 @@ export default function App() {
 
   const t = (translations as any)[language];
 
-  // --- Auth & Firestore Connection Test ---
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      setUser(firebaseUser);
-      setIsAuthReady(true);
-      if (firebaseUser) {
-        setCurrentScreen('home');
-        // Fetch user data
-        try {
-          const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
-          if (userDoc.exists()) {
-            setUserData(userDoc.data());
-          }
-        } catch (err) {
-          console.error("Error fetching user data", err);
-        }
-      } else {
-        setCurrentScreen('auth');
-        setUserData(null);
-      }
-    });
+  const loadCases = async () => {
+    const session = getPatientSession();
+    if (!session?.token) return;
 
-    async function testConnection() {
-      try {
-        await getDocFromServer(doc(db, 'test', 'connection'));
-      } catch (error) {
-        if(error instanceof Error && error.message.includes('the client is offline')) {
-          console.error("Please check your Firebase configuration.");
-        }
-      }
+    try {
+      const data = await apiRequest<PatientCase[]>('/api/cases/my');
+      setReports(
+        data.map((item) => ({
+          ...item,
+          timestamp: item.createdAt,
+          condition: item.aiResult?.condition ?? 'Case review',
+          recommendation:
+            item.recommendations[item.recommendations.length - 1]?.content ??
+            item.aiResult?.recommendation ??
+            'No recommendation available',
+        }))
+      );
+    } catch (err) {
+      console.error('Error fetching cases', err);
     }
-    testConnection();
+  };
 
-    return () => unsubscribe();
-  }, []);
-
-  // --- Fetch Reports ---
+  // --- Auth bootstrap ---
   useEffect(() => {
-    if (!user || !isAuthReady) return;
-
-    const q = query(
-      collection(db, 'reports'),
-      where('userId', '==', user.uid),
-      orderBy('timestamp', 'desc')
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const fetchedReports = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setReports(fetchedReports);
-    }, (err) => {
-      handleFirestoreError(err, OperationType.LIST, 'reports');
-    });
-
-    return () => unsubscribe();
-  }, [user, isAuthReady]);
+    const session = getPatientSession();
+    if (session?.user) {
+      setUser(session.user);
+      setUserData({
+        displayName: session.user.name,
+        phoneNumber: session.user.phone,
+      });
+      setCurrentScreen('home');
+      loadCases();
+    } else {
+      setCurrentScreen('auth');
+      setUserData(null);
+    }
+    setIsAuthReady(true);
+  }, []);
 
   // --- Auth Logic ---
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
-  const handleGoogleAuth = async () => {
+  const handleDemoAuth = async () => {
     setLoading(true);
     setError(null);
     try {
-      const provider = new GoogleAuthProvider();
-      const result = await signInWithPopup(auth, provider);
-      const user = result.user;
-      
-      // Check if user profile exists, if not create it
-      const userDoc = await getDoc(doc(db, 'users', user.uid));
-      if (!userDoc.exists()) {
-        const newUserData = {
-          uid: user.uid,
-          phoneNumber: user.phoneNumber || user.email || '',
-          displayName: user.displayName || 'User',
-          language: language,
-          createdAt: new Date().toISOString()
-        };
-        await setDoc(doc(db, 'users', user.uid), newUserData);
-        setUserData(newUserData);
-      } else {
-        setUserData(userDoc.data());
-      }
+      const result = await apiRequest<{ token: string; user: AppUser }>('/api/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({
+          phone: 'patient@healthlink.org',
+          password: 'Password123!',
+          role: 'PATIENT',
+        }),
+      });
+      setPatientSession(result.token, result.user);
+      setUser(result.user);
+      setUserData({ displayName: result.user.name, phoneNumber: result.user.phone });
+      setCurrentScreen('home');
+      await loadCases();
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -238,22 +159,29 @@ export default function App() {
     setLoading(true);
     setError(null);
     try {
-      if (isRegistering) {
-        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-        const newUser = userCredential.user;
-        // Create user profile in Firestore
-        const newUserData = {
-          uid: newUser.uid,
-          displayName: fullName || 'User',
-          phoneNumber: email, // Using email as phone for mock simplicity
-          language: language,
-          createdAt: new Date().toISOString()
-        };
-        await setDoc(doc(db, 'users', newUser.uid), newUserData);
-        setUserData(newUserData);
-      } else {
-        await signInWithEmailAndPassword(auth, email, password);
-      }
+      const payload = isRegistering
+        ? await apiRequest<{ token: string; user: AppUser }>('/api/auth/register', {
+            method: 'POST',
+            body: JSON.stringify({
+              name: fullName || 'User',
+              phone: email,
+              password,
+            }),
+          })
+        : await apiRequest<{ token: string; user: AppUser }>('/api/auth/login', {
+            method: 'POST',
+            body: JSON.stringify({
+              phone: email,
+              password,
+              role: 'PATIENT',
+            }),
+          });
+
+      setPatientSession(payload.token, payload.user);
+      setUser(payload.user);
+      setUserData({ displayName: payload.user.name, phoneNumber: payload.user.phone });
+      setCurrentScreen('home');
+      await loadCases();
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -262,11 +190,11 @@ export default function App() {
   };
 
   const handleLogout = async () => {
-    try {
-      await signOut(auth);
-    } catch (err: any) {
-      console.error("Logout error", err);
-    }
+    clearPatientSession();
+    setUser(null);
+    setUserData(null);
+    setReports([]);
+    setCurrentScreen('auth');
   };
 
   // --- Symptom Checker Logic ---
@@ -295,43 +223,37 @@ export default function App() {
     if ((selectedSymptoms.length === 0 && !customSymptom.trim()) || !user) return;
     setLoading(true);
     setLoadingText(t.analyzing);
-    
-    let result = runRules(selectedSymptoms);
-    
-    // If the rule-based engine returns Unknown, use AI analysis
-    if (result.condition === "Unknown") {
-      try {
-        setLoadingText("AI is analyzing your symptoms...");
-        const aiResult = await analyzeSymptomsAI(
-          selectedSymptoms.map(s => (symptomsList.find(sl => sl.id === s)?.label) || s), 
-          customSymptom.trim(),
-          language
-        );
-        result = aiResult;
-      } catch (err) {
-        console.error("AI Analysis failed, falling back to rule-based result", err);
-      }
-    }
-    
-    const reportData = {
-      id: uuidv4(),
-      userId: user.uid,
-      symptoms: selectedSymptoms,
-      customSymptom: customSymptom.trim(),
-      condition: result.condition,
-      recommendation: result.recommendation,
-      triageLevel: result.triageLevel,
-      timestamp: new Date().toISOString()
-    };
 
     try {
-      await addDoc(collection(db, 'reports'), reportData);
-      setLastResult(reportData);
+      const result = await apiRequest<{
+        caseId: string;
+        triageLevel: 'emergency' | 'urgent' | 'routine' | 'self-care';
+        condition: string;
+        recommendation: string;
+      }>('/api/symptoms/analyze', {
+        method: 'POST',
+        body: JSON.stringify({
+          symptoms: selectedSymptoms.map(s => (symptomsList.find(sl => sl.id === s)?.label || s).toLowerCase()),
+          customNotes: customSymptom.trim() || undefined,
+          language,
+        }),
+      });
+
+      setLastResult({
+        id: result.caseId,
+        symptoms: selectedSymptoms,
+        customSymptom: customSymptom.trim(),
+        condition: result.condition,
+        recommendation: result.recommendation,
+        triageLevel: result.triageLevel,
+        timestamp: new Date().toISOString()
+      });
+      await loadCases();
       setCurrentScreen('results');
       setSelectedSymptoms([]);
       setCustomSymptom('');
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'reports');
+      setError(err instanceof Error ? err.message : 'Unable to analyze symptoms');
     } finally {
       setLoading(false);
       setLoadingText('');
@@ -519,19 +441,19 @@ export default function App() {
                   <div className="w-full border-t border-slate-100"></div>
                 </div>
                 <div className="relative flex justify-center text-[10px]">
-                  <span className="px-6 bg-white text-slate-400 font-bold uppercase tracking-[0.2em]">Or continue with</span>
+                  <span className="px-6 bg-white text-slate-400 font-bold uppercase tracking-[0.2em]">Quick access</span>
                 </div>
               </div>
 
               <motion.button 
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
-                onClick={handleGoogleAuth}
+                onClick={handleDemoAuth}
                 disabled={loading}
                 className="w-full bg-white border-2 border-slate-50 text-slate-700 py-5 rounded-[2rem] font-bold shadow-xl shadow-slate-100/50 hover:bg-slate-50 transition-all flex items-center justify-center gap-4 disabled:opacity-50"
               >
                 <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="w-5 h-5" />
-                <span className="text-xs font-bold uppercase tracking-widest">Google Account</span>
+                <span className="text-xs font-bold uppercase tracking-widest">Demo Patient</span>
               </motion.button>
 
               <button 
@@ -626,7 +548,7 @@ export default function App() {
                 <div className="space-y-2 relative z-10 border-l border-white/10 pl-8">
                   <p className="text-[10px] font-bold text-white/60 uppercase tracking-widest">{t.last_activity}</p>
                   <p className="text-xs font-bold text-white/80 leading-tight tracking-tight">
-                    {reports[0] ? formatRelativeTime(reports[0].timestamp, language) : '--'}
+                    {reports[0] ? formatRelativeTime(reports[0].timestamp || reports[0].createdAt, language) : '--'}
                   </p>
                 </div>
               </div>
@@ -982,7 +904,7 @@ export default function App() {
                           </div>
                           <div className="flex items-center gap-2">
                             <div className="w-1 h-1 bg-slate-300 rounded-full" />
-                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{formatDate(report.timestamp, language)}</p>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{formatDate(report.timestamp || report.createdAt, language)}</p>
                           </div>
                         </div>
                       </div>
@@ -1056,7 +978,7 @@ export default function App() {
                   </motion.div>
                 </div>
                 <h2 className="text-2xl font-bold text-slate-900 tracking-tight">{userData?.displayName || 'User'}</h2>
-                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-[0.2em] mt-1.5">{user?.email}</p>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-[0.2em] mt-1.5">{user?.phone}</p>
               </div>
 
               <div className="space-y-6">

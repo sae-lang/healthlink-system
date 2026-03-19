@@ -1,0 +1,13 @@
+{
+  "folders": [
+    {
+      "name": "healthlink-patient-app",
+      "path": "healthlink-patient-app"
+    },
+    {
+      "name": "healthlink-practitioner-portal",
+      "path": "healthlink-practitioner-portal"
+    }
+  ],
+  "settings": {}
+}

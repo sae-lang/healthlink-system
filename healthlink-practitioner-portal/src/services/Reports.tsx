@@ -36,6 +36,7 @@ export const Reports: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>('all');
   const [search, setSearch] = useState('');
+  const [reviewing, setReviewing] = useState(false);
 
   useEffect(() => {
     fetchReports();
@@ -44,7 +45,7 @@ export const Reports: React.FC = () => {
   const fetchReports = async () => {
     setLoading(true);
     try {
-      const res = await api.get('/admin/reports');
+      const res = await api.get('/doctor/cases');
       setReports(res.data);
     } catch (err) {
       console.error(err);
@@ -55,10 +56,32 @@ export const Reports: React.FC = () => {
 
   const filteredReports = reports.filter(r => {
     const matchesTriage = filter === 'all' || r.triageLevel === filter;
-    const matchesSearch = r.userId.toLowerCase().includes(search.toLowerCase()) || 
+    const matchesSearch = (r.patientName || r.userId).toLowerCase().includes(search.toLowerCase()) || 
                          r.symptoms.some(s => s.toLowerCase().includes(search.toLowerCase()));
     return matchesTriage && matchesSearch;
   });
+
+  const markReviewed = async () => {
+    if (!selectedReport) return;
+    setReviewing(true);
+    try {
+      const latestRecommendation =
+        selectedReport.recommendations?.[selectedReport.recommendations.length - 1]?.content ||
+        selectedReport.aiResult?.recommendation ||
+        'Patient reviewed by doctor.';
+      await api.post('/doctor/review', {
+        caseId: selectedReport.id,
+        recommendation: latestRecommendation,
+        recommendAppointment: selectedReport.triageLevel === 'urgent' || selectedReport.triageLevel === 'emergency',
+      });
+      await fetchReports();
+      setSelectedReport(null);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setReviewing(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -120,7 +143,7 @@ export const Reports: React.FC = () => {
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
                         <div className={`w-2 h-2 rounded-full ${report.reviewed ? 'bg-slate-300' : 'bg-emerald-500'}`} />
-                        <span className="text-sm font-semibold text-slate-900">{report.userId}</span>
+                        <span className="text-sm font-semibold text-slate-900">{report.patientName || report.userId}</span>
                       </div>
                     </td>
                     <td className="px-6 py-4">
@@ -137,10 +160,10 @@ export const Reports: React.FC = () => {
                     </td>
                     <td className="px-6 py-4">
                       <div className="text-sm text-slate-600 font-medium">
-                        {format(new Date(report.timestamp), 'MMM d, yyyy')}
+                        {format(new Date(report.createdAt), 'MMM d, yyyy')}
                       </div>
                       <div className="text-xs text-slate-400">
-                        {format(new Date(report.timestamp), 'HH:mm')}
+                        {format(new Date(report.createdAt), 'HH:mm')}
                       </div>
                     </td>
                     <td className="px-6 py-4 text-right">
@@ -197,7 +220,7 @@ export const Reports: React.FC = () => {
                     <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Patient</p>
                     <div className="flex items-center gap-2 text-slate-900 font-semibold">
                       <User size={16} className="text-slate-400" />
-                      {selectedReport.userId}
+                      {selectedReport.patientName || selectedReport.userId}
                     </div>
                   </div>
                   <div className="space-y-1">
@@ -208,14 +231,14 @@ export const Reports: React.FC = () => {
                     <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Date</p>
                     <div className="flex items-center gap-2 text-slate-600 font-medium">
                       <Calendar size={16} className="text-slate-400" />
-                      {format(new Date(selectedReport.timestamp), 'MMMM d, yyyy')}
+                      {format(new Date(selectedReport.createdAt), 'MMMM d, yyyy')}
                     </div>
                   </div>
                   <div className="space-y-1">
                     <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Time</p>
                     <div className="flex items-center gap-2 text-slate-600 font-medium">
                       <Clock size={16} className="text-slate-400" />
-                      {format(new Date(selectedReport.timestamp), 'HH:mm')}
+                      {format(new Date(selectedReport.createdAt), 'HH:mm')}
                     </div>
                   </div>
                 </div>
@@ -234,7 +257,7 @@ export const Reports: React.FC = () => {
                 <div className="p-6 bg-emerald-50 rounded-2xl border border-emerald-100">
                   <p className="text-xs font-bold text-emerald-700 uppercase tracking-wider mb-2">System Recommendation</p>
                   <p className="text-slate-800 leading-relaxed font-medium">
-                    {selectedReport.recommendation}
+                    {selectedReport.recommendations?.[selectedReport.recommendations.length - 1]?.content || selectedReport.aiResult?.recommendation || 'No recommendation available.'}
                   </p>
                 </div>
               </div>
@@ -246,9 +269,9 @@ export const Reports: React.FC = () => {
                 >
                   Close
                 </button>
-                <button className="px-6 py-2 bg-emerald-600 text-white font-semibold rounded-xl hover:bg-emerald-700 transition-colors flex items-center gap-2">
+                <button onClick={markReviewed} disabled={reviewing} className="px-6 py-2 bg-emerald-600 text-white font-semibold rounded-xl hover:bg-emerald-700 transition-colors flex items-center gap-2 disabled:opacity-60">
                   <CheckCircle size={18} />
-                  Mark as Reviewed
+                  {reviewing ? 'Saving...' : 'Mark as Reviewed'}
                 </button>
               </div>
             </motion.div>

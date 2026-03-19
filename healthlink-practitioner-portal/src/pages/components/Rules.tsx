@@ -45,7 +45,7 @@ export const Rules: React.FC = () => {
   const fetchRules = async () => {
     setLoading(true);
     try {
-      const res = await api.get('/admin/rules');
+      const res = await api.get('/doctor/rules');
       setRules(res.data);
     } catch (err) {
       console.error(err);
@@ -84,9 +84,9 @@ export const Rules: React.FC = () => {
 
     try {
       if (editingRule) {
-        await api.put(`/admin/rules/${editingRule.id}`, formattedData);
+        await api.put(`/doctor/rules/${editingRule.id}`, formattedData);
       } else {
-        await api.post('/admin/rules', formattedData);
+        await api.post('/doctor/rules', formattedData);
       }
       fetchRules();
       setIsModalOpen(false);
@@ -99,7 +99,7 @@ export const Rules: React.FC = () => {
 
   const toggleStatus = async (rule: DiagnosticRule) => {
     try {
-      await api.put(`/admin/rules/${rule.id}`, { isActive: !rule.isActive });
+      await api.put(`/doctor/rules/${rule.id}`, { isActive: !rule.isActive });
       setRules(rules.map(r => r.id === rule.id ? { ...r, isActive: !r.isActive } : r));
     } catch (err) {
       console.error(err);
@@ -109,7 +109,7 @@ export const Rules: React.FC = () => {
   const deleteRule = async (id: string) => {
     if (!confirm('Are you sure you want to delete this rule?')) return;
     try {
-      await api.delete(`/admin/rules/${id}`);
+      await api.delete(`/doctor/rules/${id}`);
       fetchRules();
     } catch (err) {
       console.error(err);
